@@ -359,7 +359,6 @@ periodo*/
  group by YEAR(fact_fecha), MONTH(fact_fecha), item_producto, prod_detalle
 
 
-
 /*18)Escriba una consulta que retorne una estadística de ventas para todos los rubros.
 La consulta debe retornar:
 DETALLE_RUBRO: Detalle del rubro
@@ -370,6 +369,35 @@ CLIENTE: Código del cliente que compro más productos del rubro en los últimos
 días
 La consulta no puede mostrar NULL en ninguna de sus columnas y debe estar ordenada
 por cantidad de productos diferentes vendidos del rubro.*/
+
+ select rubr_detalle,
+		---Suma de las ventas en pesos de productos vendidos de dicho rubro---
+		isnull(SUM(item_precio*item_cantidad),0) as VENTAS,
+		---Código del producto más vendido de dicho rubro---
+		isnull((select top 1 p2.prod_codigo from Producto p2 join Item_Factura i2 on p2.prod_codigo = i2.item_producto
+		 where p2.prod_rubro = rubr_id
+		 group by p2.prod_codigo
+		 order by COUNT(i2.item_producto) desc),'ninguno') as PROD1,
+		---Código del segundo producto más vendido de dicho rubro---
+		isnull((select top 1 p4.prod_codigo from Producto p4 
+		join Item_Factura i4 on p4.prod_codigo = i4.item_producto 
+		where p4.prod_codigo <> (select top 1 p5.prod_codigo from Producto p5 join Item_Factura i5 on p5.prod_codigo = i5.item_producto
+													where p5.prod_rubro = rubr_id
+													group by p5.prod_codigo
+													order by COUNT(i5.item_producto) desc)
+		group by p4.prod_codigo
+		order by COUNT(i4.item_producto) desc), 'ninguno') as PROD2,
+		---Código del cliente que compro más productos del rubro---
+		isnull((select top 1 clie_codigo from Cliente
+		join Factura on clie_codigo = fact_cliente 
+		join Item_Factura i3 on fact_tipo+fact_sucursal+fact_numero = i3.item_tipo+i3.item_sucursal+i3.item_numero
+		join Producto p3 on p3.prod_codigo = i3.item_producto
+		where p3.prod_rubro = rubr_id
+		group by clie_codigo order by COUNT(*) desc), 'ninguno') as CLIENTE
+ from Rubro left join Producto on prod_rubro = rubr_id
+ left join Item_Factura on prod_codigo = item_producto
+ group by rubr_detalle, rubr_id
+ order by COUNT(prod_codigo)
 
 
 /*19) En virtud de una recategorizacion de productos referida a la familia de los mismos se
@@ -387,6 +415,27 @@ codigo. Solo se deben mostrar los productos para los cuales la familia actual se
 diferente a la sugerida
 Los resultados deben ser ordenados por detalle de producto de manera ascendente
 */
+
+ select
+    p1.prod_codigo,
+    p1.prod_detalle,
+    p1.prod_familia,
+    fami_detalle,
+    (select top 1 fami_id from Familia f2
+    where SUBSTRING(p1.prod_detalle,0,6) = SUBSTRING(f2.fami_detalle,0,6)
+    order by f2.fami_id ASC
+    ) as Familia_Sugerida_id,
+    (select top 1 fami_detalle from Familia f2
+    where SUBSTRING(p1.prod_detalle,0,6) = SUBSTRING(f2.fami_detalle,0,6)
+    order by f2.fami_id ASC
+    ) as Familia_Sugerida_detalle
+from Producto p1
+join Familia on p1.prod_familia = fami_id
+where fami_detalle <> (select top 1 fami_detalle from Familia f2
+                       where SUBSTRING(p1.prod_detalle,0,6) = SUBSTRING(f2.fami_detalle,0,6)
+                       order by f2.fami_id ASC)
+order by p1.prod_detalle ASC
+
 
 
 
