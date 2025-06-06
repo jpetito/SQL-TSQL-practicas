@@ -1,4 +1,4 @@
-﻿/*
+/*
 1. Mostrar el código, razón social de todos los clientes cuyo límite de crédito sea mayor o
 igual a $ 1000 ordenado por código de cliente.
 */
@@ -180,7 +180,7 @@ from Empleado left join DEPOSITO on empl_codigo = depo_encargado or empl_jefe = 
 group by empl_jefe, empl_codigo, rtrim(empl_apellido)+' '+rtrim(empl_nombre)
 
 
-10) /* Mostrar los 10 productos más vendidos en la historia y también los 10 productos menos
+/* 10) Mostrar los 10 productos más vendidos en la historia y también los 10 productos menos
 vendidos en la historia. Además mostrar de esos productos, quien fue el cliente que
 mayor compra realizo. */
 
@@ -200,7 +200,7 @@ or prod_codigo in
     group by item_producto
     order by sum(item_cantidad))
 
-11) /* Realizar una consulta que retorne el detalle de la familia, la cantidad diferentes de
+/* 11) Realizar una consulta que retorne el detalle de la familia, la cantidad diferentes de
 productos vendidos y el monto de dichas ventas sin impuestos. Los datos se deberán
 ordenar de mayor a menor, por la familia que más productos diferentes vendidos tenga,
 solo se deberán mostrar las familias que tengan una venta superior a 20000 pesos para
@@ -247,7 +247,7 @@ WHERE prod_codigo in (select item_producto from item_factura join factura
 GROUP BY prod_codigo, prod_detalle
 ORDER BY SUM(item_precio * item_cantidad) DESC
 
-13) /* Realizar una consulta que retorne para cada producto que posea composición nombre
+/* 13) Realizar una consulta que retorne para cada producto que posea composición nombre
 del producto, precio del producto, precio de la sumatoria de los precios por la cantidad
 de los productos que lo componen. Solo se deberán mostrar los productos que estén
 compuestos por más de 2 productos y deben ser ordenados de mayor a menor por
@@ -320,47 +320,19 @@ Además mostrar
 3. Código de producto que mayor venta tuvo en el 2012 (en caso de existir más de 1,
 mostrar solamente el de menor código) para ese cliente.*/
 
- select clie_razon_social,
-		COUNT(item_producto) as unidades_vendidas,
-		(select top 1 item_producto from Factura join Item_Factura 
-			on fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero 
-			where year(fact_fecha) = 2012 and clie_codigo = fact_cliente 
-			order by 1 desc) as mayor_venta
- from Cliente join Factura on clie_codigo = fact_cliente
- join Item_Factura on fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
- where year(fact_fecha) = 2012
- group by clie_razon_social
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
---volver a hacer
- select clie_razon_social,
-		isnull(sum(item_cantidad), 0) as cant_unidades_vendidas,
-		(select top 1 MAX(item_producto) from Item_Factura join Factura on fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero 
-			where clie_codigo = fact_cliente and YEAR(fact_fecha) = 2012) as prod_mayor_venta
-
- from Cliente join Factura on clie_codigo = fact_cliente
- left join Item_Factura on fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero
- where YEAR(fact_fecha) = 2012
- group by clie_razon_social, clie_codigo
- having sum(fact_total) < (select SUM(fact_total) from Factura join Item_Factura on fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero 
-							where item_producto = (select top 1 MAX(item_producto) from Item_Factura join Factura on fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero) 
-							and YEAR(fact_fecha) = 2012) /3
-
-
+select clie_razon_social, sum(isnull(item_cantidad,0)), isnull((select top 1 item_producto from item_factura join factura on 
+                                                fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero   
+                                                where clie_codigo = fact_cliente and year(fact_fecha) = 2012
+                                                group by item_producto
+                                                order by sum(item_cantidad) desc, item_producto), 'Ninguno')                     
+from cliente join factura on clie_codigo = fact_cliente left join item_factura on 
+    fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero and 
+    year(fact_fecha) = 2012    
+group by clie_razon_social, clie_codigo 
+having isnull((select sum(fact_total - fact_total_impuestos) from factura where fact_cliente = clie_codigo),0) < (select top 1 sum(item_precio*item_cantidad) from item_factura join factura on fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero   
+                                                where year(fact_fecha) = 2012
+                                                group by item_producto
+                                                order by sum(item_cantidad) desc) / 3
 
 /* 17) Escriba una consulta que retorne una estadística de ventas por año y mes para cada
 producto.
@@ -375,6 +347,16 @@ pero del año anterior
 CANT_FACTURAS= Cantidad de facturas en las que se vendió el producto en el
 periodo*/
 
+ select STR(YEAR(fact_fecha),4)+RIGHT('00'+LTRIM(STR(MONTH(fact_fecha),2)),2) as fecha,
+		item_producto,
+		prod_detalle,
+		SUM(item_cantidad) as cant_vendida,
+		(select isnull(SUM(item_cantidad), 0) from Factura f2 join Item_Factura i2 on f2.fact_tipo+f2.fact_sucursal+f2.fact_numero = i2.item_tipo+i2.item_sucursal+i2.item_numero
+		where item_producto = i2.item_producto and MONTH(f2.fact_fecha) = MONTH(fact_fecha) and (YEAR(fact_fecha)-1) = YEAR(f2.fact_fecha)) as ventas_anio_ant,
+		COUNT(distinct item_tipo+item_sucursal+item_numero) as cant_fact
+ from Factura join Item_Factura on fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero 
+ join Producto on item_producto = prod_codigo
+ group by YEAR(fact_fecha), MONTH(fact_fecha), item_producto, prod_detalle
 
 
 
