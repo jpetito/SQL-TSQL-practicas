@@ -399,7 +399,6 @@ por cantidad de productos diferentes vendidos del rubro.*/
  group by rubr_detalle, rubr_id
  order by COUNT(prod_codigo)
 
-
 /*19) En virtud de una recategorizacion de productos referida a la familia de los mismos se
 solicita que desarrolle una consulta sql que retorne para todos los productos:
 Codigo de producto
@@ -416,42 +415,55 @@ diferente a la sugerida
 Los resultados deben ser ordenados por detalle de producto de manera ascendente
 */
 
- select
-    p1.prod_codigo,
-    p1.prod_detalle,
-    p1.prod_familia,
-    fami_detalle,
-    (select top 1 fami_id from Familia f2
-    where SUBSTRING(p1.prod_detalle,0,6) = SUBSTRING(f2.fami_detalle,0,6)
-    order by f2.fami_id ASC
-    ) as Familia_Sugerida_id,
-    (select top 1 fami_detalle from Familia f2
-    where SUBSTRING(p1.prod_detalle,0,6) = SUBSTRING(f2.fami_detalle,0,6)
-    order by f2.fami_id ASC
-    ) as Familia_Sugerida_detalle
-from Producto p1
-join Familia on p1.prod_familia = fami_id
-where fami_detalle <> (select top 1 fami_detalle from Familia f2
-                       where SUBSTRING(p1.prod_detalle,0,6) = SUBSTRING(f2.fami_detalle,0,6)
-                       order by f2.fami_id ASC)
-order by p1.prod_detalle ASC
-
-
-
+ select p1.prod_codigo,
+		p1.prod_detalle,
+		p1.prod_familia,
+		f1.fami_detalle,
+		(select top 1 f2.fami_id from Familia f2
+		 where SUBSTRING(f2.fami_detalle, 0, 6) = SUBSTRING(p1.prod_detalle, 0, 6)
+		 order by f2.fami_id) as id_familia_sug,
+		 (select top 1 f3.fami_detalle from Familia f3
+		 where SUBSTRING(f3.fami_detalle, 0, 6) = SUBSTRING(p1.prod_detalle, 0, 6)
+		 order by f3.fami_id) as det_familia_sug
+ from Producto p1 join Familia f1 on p1.prod_familia=f1.fami_id
+ where f1.fami_id <> (select top 1 f2.fami_id from Familia f2
+						where SUBSTRING(f2.fami_detalle, 0, 6) = SUBSTRING(p1.prod_detalle, 0, 6)
+						order by f2.fami_id)
+ order by prod_codigo	
 
 /*20). Escriba una consulta sql que retorne un ranking de los mejores 3 empleados del 2012 Se debera retornar legajo, 
 nombre y apellido, anio de ingreso, puntaje 2011, puntaje 2012. El puntaje de cada empleado se calculara de la siguiente manera: 
-para los que hayan vendido al menos 50 facturas el puntaje se calculara como la cantidad de facturas que superen los 100 
-pesos que haya vendido en el año, para los que tengan menos de 50 facturas en el año el calculo del puntaje 
+para los que hayan vendido al menos 50 facturas el puntaje:
+se calculara como la cantidad de facturas que superen los 100 pesos que haya vendido en el año,
+para los que tengan menos de 50 facturas en el año el calculo del puntaje 
 sera el 50% de cantidad de facturas realizadas por sus subordinados directos en dicho año */
 
+ select top 3 e1.empl_codigo,
 
+   			  e1.empl_nombre+e1.empl_apellido as nombre_y_apellido,
 
+			  year(e1.empl_ingreso) as anio_ingreso,
+			  --puntaje 2011
+			  case when (select COUNT(distinct f1.fact_sucursal + f1.fact_tipo + f1.fact_numero) from Factura f1
+						where f1.fact_vendedor = e1.empl_codigo and YEAR(fact_fecha) = 2011) >= 50
+							then (select COUNT(distinct f2.fact_sucursal + f2.fact_tipo + f2.fact_numero) from Factura f2 
+									where f2.fact_vendedor = e1.empl_codigo and YEAR(fact_fecha) = 2011 and f2.fact_total > 100)
+			  else (select 0.5*count(*) from Factura f3 
+					where f3.fact_vendedor in (select e2.empl_codigo from Empleado e2 where e2.empl_jefe = e1.empl_codigo) and YEAR(f3.fact_fecha) = 2011) end as puntaje2011,
+			--puntaje 2012
+			case when (select COUNT(distinct f1.fact_sucursal + f1.fact_tipo + f1.fact_numero) from Factura f1
+						where f1.fact_vendedor = e1.empl_codigo and YEAR(fact_fecha) = 2012) >= 50
+							then (select COUNT(distinct f2.fact_sucursal + f2.fact_tipo + f2.fact_numero) from Factura f2 
+									where f2.fact_vendedor = e1.empl_codigo and YEAR(fact_fecha) = 2012 and f2.fact_total > 100)
+			  else (select 0.5*count(*) from Factura f3 
+					where f3.fact_vendedor in (select e2.empl_codigo from Empleado e2 where e2.empl_jefe = e1.empl_codigo) and YEAR(f3.fact_fecha) = 2012) end as puntaje2012
+			
+ from Empleado e1
 
 /*21). Escriba una consulta sql que retorne para todos los años, en los cuales se haya hecho al
 menos una factura, la cantidad de clientes a los que se les facturo de manera incorrecta
-al menos una factura y que cantidad de facturas se realizaron de manera incorrecta. Se
-considera que una factura es incorrecta cuando la diferencia entre el total de la factura
+al menos una factura y que cantidad de facturas se realizaron de manera incorrecta. 
+Seconsidera que una factura es incorrecta cuando la diferencia entre el total de la factura
 menos el total de impuesto tiene una diferencia mayor a $ 1 respecto a la sumatoria de
 los costos de cada uno de los items de dicha factura. Las columnas que se deben mostrar
 son:
@@ -460,10 +472,12 @@ Clientes a los que se les facturo mal en ese año
 Facturas mal realizadas en ese año
 */
 
-
-
-
-
+ select YEAR(fact_fecha) as anio,
+		COUNT(distinct fact_cliente),
+		COUNT(distinct fact_tipo+fact_numero+fact_sucursal)
+ from Factura
+ where (fact_total - fact_total_impuestos) - (select SUM(item_cantidad*item_cantidad) from Item_Factura 
+											  where item_numero+item_sucursal+item_tipo = fact_numero+fact_sucursal+fact_tipo) > 1
 
 
 /*22) Escriba una consulta sql que retorne una estadistica de venta para todos los rubros por
@@ -482,16 +496,17 @@ no superen las 100.
 En ningun momento se tendran en cuenta los productos compuestos para esta
 estadistica.*/
 
-
-
-
-
-
-
-
-
-
-
+ select r1.rubr_detalle,
+		DATEPART(QUARTER, fact_fecha) as Trimestre,
+		COUNT(distinct fact_tipo+fact_numero+fact_sucursal) as cant_fact,
+		COUNT(distinct prod_codigo) as cant_prod_dist
+ from Rubro r1 join Producto on prod_rubro = rubr_id
+ join Item_Factura on item_producto = prod_codigo
+ join Factura on item_numero+item_sucursal+item_tipo = fact_numero+fact_sucursal+fact_tipo
+ where prod_codigo not in (select comp_componente from Composicion)
+ group by r1.rubr_detalle, DATEPART(QUARTER, fact_fecha)
+ having COUNT(distinct fact_tipo+fact_numero+fact_sucursal) > 100
+ order by 1
 
 /* 23. Realizar una consulta SQL que para cada año muestre :
  Año
