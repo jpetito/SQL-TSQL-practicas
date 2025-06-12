@@ -197,85 +197,53 @@ cantidad de sus componentes, se aclara que un producto que compone a otro,
 también puede estar compuesto por otros y así sucesivamente, la tabla se debe
 crear y está formada por las siguientes columnas:
 */
-/*
-8. Realizar un procedimiento que complete la tabla Diferencias de precios, para los
-productos facturados 
-
-item factura que-> - que tengan composición
-				   - cuales el precio de facturación sea diferente al precio del cálculo de los precios unitarios por
-cantidad de sus componentes, se aclara que un producto que compone a otro,
-también puede estar compuesto por otros y así sucesivamente, la tabla se debe
-crear y está formada por las siguientes columnas:
-*/
-
-create procedure completarTabla
+create procedure ej8 
 as
-begin 
-	insert into Diferencias 
-	     (prod_codigo,
-         prod_detalle,
-         cantidad_componentes,
-         precio_compuesto,
-         precio_facturado)
+begin
+	insert into diferencias
+		(codigo,
+		 detalle,
+		 cantidad,
+		 precio_generado,
+		 precio_facturado)
 
 	select
-	 prod_codigo,
-	 prod_detalle,
-	 dbo.cantidadCompuestosRecursivo(prod_codigo),
-	 dbo.precioGenerado(prod_codigo),
-	 (select top 1 item_precio from item_factura where item_producto = prod_codigo)
-	
-	from producto p
-	join item_factura on p.prod_codigo = item_producto 
-	where p.prod_codigo in (select comp_componente from Composicion) and
-	dbo.precioGenerado(p.prod_codigo) <> item_precio
-
+		prod_codigo,
+		prod_detalle,
+		(select comp_cantidad from Composicion where comp_producto = prod_codigo)
+		dbo.precioComponentesRecursivo(prod_codigo),
+		item_precio
+	from Producto join Item_Factura on prod_codigo = item_producto where prod_codigo in (select comp_producto from Composicion)
+	and prod_precio <> dbo.precioGenerado(prod_codigo)
 end
-go
 
-
-create function cantidadCompuestosRecursivo (@producto char(8))
+alter function precioComponentesRecursivo(@producto char(8))
 returns decimal(12,2)
 as
 begin
-	declare @cantidad decimal(12,2)
-	select @cantidad = isnull(sum(1 + dbo.cantidadCompuestosRecursivo(comp_componente)), 0) from Composicion where comp_producto = @producto
-
-	return @cantidad
-end
-go
-
-
-create function precioGenerado(@producto char(8))
-returns decimal(12,2)
-as 
-begin
-	declare @precio decimal(12,2), @comp char(8), @cant decimal(12,2)
-	if(select count(comp_componente) from composicion where comp_producto = @producto) = 0
-	select @precio = prod_precio from Producto where prod_codigo = @producto
+	declare @precioTotal decimal(12,2)
+	if (select COUNT(*) from Composicion where comp_componente = @producto) = 0
+		select @precioTotal = prod_precio from producto where prod_codigo = @producto
 	else
 		begin
-			declare comp_cursor cursor for
-			select comp_componente from Composicion join Producto on prod_codigo = comp_producto where comp_producto = @producto
-			open empl_cursor
-			fetch next from comp_cursor into @comp, @cant
+			select @precioTotal = 0
+			declare @comp char(8)
+			declare comp_cursor cursor for select comp_componente, comp_cantidad from Composicion where comp_producto = @producto
+			open comp_cursor
+			fetch next from comp_cursor into @comp, @cantCompo
 			while @@FETCH_STATUS = 0
 				begin
-					select @precio = @precio + @cant * dbo.precioGenerado(@comp)
-				fetch next from comp_cursor into @comp, @cant
-			end
-			close comp_cursor
-			deallocate comp_cursor
-		end
-	return @precio
+					declare @cantCompo decimal(12,2)
+					select @cantCompo = comp_cantidad from Composicion where comp_componente = @comp
+					select @precioTotal = @precioTotal + @cantCompo * dbo.precioComponentesRecursivo(@comp)
+					fetch next from comp_cursor into @comp, @cantCompo
+				end
+		 end
+		 close comp_cursor
+		 deallocate comp_cursor
+		return @precioTotal
 end
-go
-
-
-select * from Item_Factura
-
-select item_precio from item_factura where item_producto = 00001415
-
+go 
 
 /*
 9. Crear el/los objetos de base de datos que ante alguna modificación de un ítem de
@@ -288,28 +256,42 @@ correspondientes componentes.
 
 
 
-
-
-
-
-/* 10. Crear el/los objetos de base de datos que ante el intento de borrar un artículo
+/*10. Crear el/los objetos de base de datos que ante el intento de borrar un artículo
 verifique que no exista stock y si es así lo borre en caso contrario que emita un
 mensaje de error.
 */
 
+create trigger intentoBorrarProducto on Producto after delete
+as
+begin
+	--aca solo estamos controlando, si no hay eliminados no hace nada, y si hay verifica que cumpla la condicion
+	if(select count(*) from deleted join STOCK on stoc_producto = prod_codigo where stoc_cantidad > 0) > 0
+	begin
+		ROLLBACK
+		RAISERROR('hay stock de este producto')
+	end
+end
+go
 
+-- !! anotacion
+/*
+	AFTER DELETE --> si nosotros mandamos un conjunto de productos a borrar y cumplen todos la condicion menos UNO entonces no se elimina ninguno
 
+	INSTEAD OF ---> si no tiene stock un producto borra ese producto y los que cumplen NO SE BORRAN
+		
+		(depende de la consigna xq si mandas a ejecutar de a una instruccion la consulta debe ser atomica)
 
+abajo un ejemplo de instead of 
+*/
 
+---queremos borrar LOS QUE SE PUEDA---
+create trigger ej10 on producto instead of delete
+as
+begin
+	delete from producto where prod_codigo not in (select stoc_producto from deleted join STOCK on stoc_producto = prod_codigo where stoc_cantidad > 0) --lo de parentesis son los que no se pueden borrar
+end
+go
 
-
-
-
-
-
-
-
-	-- == CLASE PREENCIAL ==
 /*
 11. Cree el/los objetos de base de datos necesarios para que dado un código de
 empleado se retorne la cantidad de empleados que este tiene a su cargo (directa o
@@ -317,34 +299,71 @@ indirectamente). Solo contar aquellos empleados (directos o indirectos) que
 tengan un código mayor que su jefe directo.
 */
 
+alter function cantEmpleados (@empleado numeric(6))
+returns decimal(12,2)
+as
+begin
+	declare @cantEmpl decimal(12,2)
+	declare @empl numeric(6)
+	declare empl_cursor cursor for select empl_codigo from Empleado where empl_jefe = @empleado
+	open empl_cursor
+	fetch next from empl_cursor into @empl
+	select  @cantEmpl = 0
+	while @@FETCH_STATUS = 0
+		begin
+			select @cantEmpl = @cantEmpl + 1 + dbo.cantEmpleados(@empl)
+		fetch next from empl_cursor into @empl
+		end
+	close empl_cursor
+	deallocate empl_cursor
 
+	return @cantEmpl
+end
+go
 
+select dbo.cantEmpleados(3) as cant_empleados
 
+select * from empleado
 
-
-
-
-
-
-
-
-
+select empl_jefe from empleado where empl_jefe = 3
 
 /*12. Cree el/los objetos de base de datos necesarios para que nunca un producto
-p
-ueda ser compuesto por sí mismo. Se sabe que en la actualidad dicha regla se
+pueda ser compuesto por sí mismo. Se sabe que en la actualidad dicha regla se
 cumple y que la base de datos es accedida por n aplicaciones de diferentes tipos
 y tecnologías. No se conoce la cantidad de niveles de composición existentes.*/
 
+create trigger noCompuesto on Composicion after insert
+as
+begin 
+	if((select SUM(dbo.esComponente(comp_producto, comp_componente)) from inserted) > 0) 
+	begin
+		ROLLBACK
+		RAISERROR('El producto esta compuesto por si mismo')
+	end
+end
+go
 
-
-
-
-
-
-
-
-
+create function esComponente(@prod1 char(8), @prod2 char(8))
+returns int
+begin 
+	if @prod1 = @prod2 return 1
+	else 
+		begin
+			declare @prodAux char(8)
+			declare prod_cursor cursor for select comp_componente from Componente where comp_producto = @prod1
+			open prod_cursor
+			fetch next from prod_cursor into @prodAux
+			while @@FETCH_STATUS = 0
+				begin
+					if dbo.esComponente(@prod1, @prodAux) = 1 return 1
+				fetch next from prod_cursor into @prodAux
+				end
+			close prod_cursor
+			deallocate prod_cursor
+		end
+	return 0
+end
+go
 
 /*
 13. Cree el/los objetos de base de datos necesarios para implantar la siguiente regla
@@ -354,20 +373,44 @@ regla se cumple y que la base de datos es accedida por n aplicaciones de
 diferentes tipos y tecnologías
 */
 
+create trigger reglaEmpleado on empleado for update, delete
+as
+begin
+	if(select COUNT(*) from inserted i where ((select empl_salario from Empleado where empl_codigo = i.empl_jefe) < (dbo.salarioTotalDeSusEmpleados(i.empl_jefe))*0.2)) < 0
+	begin --aca evaluamos que se cumpla la regla para updatear
+		ROLLBACK 
+		RAISERROR('su jefe tiene salario mayor al 20% de sus empleados')	
+	end
+	if(select COUNT(*) from deleted i where ((select empl_salario from Empleado where empl_codigo = i.empl_jefe) < (dbo.salarioTotalDeSusEmpleados(i.empl_jefe))*0.2)) < 0
+	begin --aca volvemos a evaluar si despues de eliminar al empleado sigue cumpliendo la regla
+		ROLLBACK 
+		RAISERROR('su jefe tiene salario mayor al 20% de sus empleados')	
+	end
+end
+go
 
+create function salarioTotalDeSusEmpleados(@empleado numeric(6))
+returns decimal(12,2)
+as
+begin
+	declare @salarioTotal decimal(12,2)
+	select @salarioTotal = 0
+	declare @empl numeric(6)
+	declare @salario decimal(12,2)
+	declare empl_cursor cursor for select empl_codigo, empl_salario from Empleado where empl_jefe = @empleado
+	open empl_cursor
+	fetch next from empl_cursor into @empl, @salario
+	while @@FETCH_STATUS = 0
+		begin
+			select @salarioTotal = @salarioTotal + @salario + dbo.salarioTotalDeSusEmpleados(@empl)
+			fetch next from empl_cursor into @empl, @salario
+		end
+	close empl_cursor
+	deallocate empl_cursor
 
-
-
-
-
-
-
-
-
-
-
-
-
+	return @salarioTotal
+end
+go
 
 /* 14. Agregar el/los objetos necesarios para que si un cliente compra un producto
 compuesto a un precio menor que la suma de los precios de sus componentes
