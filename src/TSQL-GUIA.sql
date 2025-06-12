@@ -292,6 +292,27 @@ begin
 end
 go
 
+---otro ejemplo: quiero informar UNO POR UNO los que no borre---
+
+create trigger ej10 on producto instead of delete
+as
+begin
+	declare @producto char(8)
+	delete from producto where prod_codigo not in (select stoc_producto from deleted join STOCK on stoc_producto = prod_codigo where stoc_cantidad > 0) --lo de parentesis son los que no se pueden borrar
+	declare c1 cursor for select distinct stoc_producto from deleted join STOCK on stoc_producto = prod_codigo where stoc_cantidad > 0
+	open c1
+	fetch next c1 into @producto
+	while @@FETCH_STATUS = 0
+	begin
+		print('el producto' + @producto + 'no se pudo borrar porque tiene stock')
+		fetch next c1 into @producto
+	end
+	close c1
+	deallocate c1
+end
+go
+
+
 /*
 11. Cree el/los objetos de base de datos necesarios para que dado un código de
 empleado se retorne la cantidad de empleados que este tiene a su cargo (directa o
