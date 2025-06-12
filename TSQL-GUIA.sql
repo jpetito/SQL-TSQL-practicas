@@ -197,11 +197,84 @@ cantidad de sus componentes, se aclara que un producto que compone a otro,
 también puede estar compuesto por otros y así sucesivamente, la tabla se debe
 crear y está formada por las siguientes columnas:
 */
+/*
+8. Realizar un procedimiento que complete la tabla Diferencias de precios, para los
+productos facturados 
+
+item factura que-> - que tengan composición
+				   - cuales el precio de facturación sea diferente al precio del cálculo de los precios unitarios por
+cantidad de sus componentes, se aclara que un producto que compone a otro,
+también puede estar compuesto por otros y así sucesivamente, la tabla se debe
+crear y está formada por las siguientes columnas:
+*/
+
+create procedure completarTabla
+as
+begin 
+	insert into Diferencias 
+	     (prod_codigo,
+         prod_detalle,
+         cantidad_componentes,
+         precio_compuesto,
+         precio_facturado)
+
+	select
+	 prod_codigo,
+	 prod_detalle,
+	 dbo.cantidadCompuestosRecursivo(prod_codigo),
+	 dbo.precioGenerado(prod_codigo),
+	 (select top 1 item_precio from item_factura where item_producto = prod_codigo)
+	
+	from producto p
+	join item_factura on p.prod_codigo = item_producto 
+	where p.prod_codigo in (select comp_componente from Composicion) and
+	dbo.precioGenerado(p.prod_codigo) <> item_precio
+
+end
+go
 
 
+create function cantidadCompuestosRecursivo (@producto char(8))
+returns decimal(12,2)
+as
+begin
+	declare @cantidad decimal(12,2)
+	select @cantidad = isnull(sum(1 + dbo.cantidadCompuestosRecursivo(comp_componente)), 0) from Composicion where comp_producto = @producto
+
+	return @cantidad
+end
+go
 
 
+create function precioGenerado(@producto char(8))
+returns decimal(12,2)
+as 
+begin
+	declare @precio decimal(12,2), @comp char(8), @cant decimal(12,2)
+	if(select count(comp_componente) from composicion where comp_producto = @producto) = 0
+	select @precio = prod_precio from Producto where prod_codigo = @producto
+	else
+		begin
+			declare comp_cursor cursor for
+			select comp_componente from Composicion join Producto on prod_codigo = comp_producto where comp_producto = @producto
+			open empl_cursor
+			fetch next from comp_cursor into @comp, @cant
+			while @@FETCH_STATUS = 0
+				begin
+					select @precio = @precio + @cant * dbo.precioGenerado(@comp)
+				fetch next from comp_cursor into @comp, @cant
+			end
+			close comp_cursor
+			deallocate comp_cursor
+		end
+	return @precio
+end
+go
 
+
+select * from Item_Factura
+
+select item_precio from item_factura where item_producto = 00001415
 
 
 /*
