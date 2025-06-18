@@ -509,24 +509,31 @@ estadistica.*/
  order by 1
 
 /* 23. Realizar una consulta SQL que para cada año muestre :
- Año
- El producto con composición más vendido para ese año.
+ Año --factura
+ El producto con composición más vendido para ese año. 
  Cantidad de productos que componen directamente al producto más vendido
- La cantidad de facturas en las cuales aparece ese producto.
+ La cantidad de facturas en las cuales aparece ese producto. 
  El código de cliente que más compro ese producto.
  El porcentaje que representa la venta de ese producto respecto al total de venta
-del año.
+del año. 
 El resultado deberá ser ordenado por el total vendido por año en forma descendente.
 */
 
-
-
-
-
-
-
-
-
+ select YEAR(fact_fecha) as Año,
+		item_producto,
+		COUNT(distinct fact_tipo + fact_sucursal + fact_numero) as cant_fact_aparece,
+		(select top 1 clie_codigo from Cliente join Factura f on clie_codigo = f.fact_cliente join Item_Factura i on i.item_tipo+i.item_sucursal+i.item_numero = f.fact_tipo+f.fact_sucursal+f.fact_numero
+		 where YEAR(f.fact_fecha) = YEAR(fact_fecha) and i.item_producto = item_producto group by clie_codigo order by SUM(item_cantidad) desc),
+		 AVG(item_cantidad * item_precio) as porcentaje_ventas
+ from Factura 
+ join Item_Factura on item_tipo+item_sucursal+item_numero = fact_tipo+fact_sucursal+fact_numero
+ join Producto on item_producto = prod_codigo 
+ join Composicion on prod_codigo = comp_producto
+ group by YEAR(fact_fecha), item_producto
+ having item_producto in (select top 1 i.item_producto from Item_Factura i join Factura f on i.item_tipo+i.item_sucursal+i.item_numero = f.fact_tipo+f.fact_sucursal+f.fact_numero
+						 join Composicion on item_producto = comp_producto 
+						 where YEAR(f.fact_fecha) = YEAR(fact_fecha) group by i.item_producto order by SUM(i.item_cantidad) desc)
+ order by 1 desc
 
 /* 24. Escriba una consulta que considerando solamente las facturas correspondientes a los
 dos vendedores con mayores comisiones, retorne los productos con composición
@@ -537,12 +544,37 @@ La consulta debe retornar las siguientes columnas:
  Unidades facturadas
 El resultado deberá ser ordenado por las unidades facturadas descendente. */
 
+-- deglosando el problema
+
+--dos vendedores con mayores comisiones
+ select top 2 empl_codigo
+ from  Empleado
+ order by empl_comision desc
+
+-- solamente las facturas correspondientes a los dos vendedores con mayores comisiones
+ select fact_tipo, fact_sucursal, fact_numero
+ from Factura where fact_vendedor in (select top 2 empl_codigo from  Empleado order by empl_comision desc)
+
+-- retorne los productos con composición facturados al menos en cinco facturas
+ select prod_codigo 
+ from Producto
+ join Composicion on prod_codigo = comp_producto
+ join Item_Factura on prod_codigo = item_producto
+ group by prod_codigo
+ having COUNT(distinct item_tipo + item_sucursal + item_numero) >= 5
 
 
-
-
-
-
+ -- RESPUESTA FINAL
+ select prod_codigo,
+		prod_detalle,
+		SUM(item_cantidad) as unidades_facturadas
+ from Producto join Item_Factura on prod_codigo = item_producto
+ join Factura on item_tipo+item_sucursal+item_numero = fact_tipo+fact_sucursal+fact_numero
+ where fact_vendedor in (select top 2 empl_codigo from  Empleado order by empl_comision desc)
+ and prod_codigo in (select prod_codigo from Producto join Composicion on prod_codigo = comp_producto join Item_Factura on prod_codigo = item_producto
+						group by prod_codigo having COUNT(distinct item_tipo + item_sucursal + item_numero) >= 5)
+ group by prod_codigo, prod_detalle
+ order by 3 desc
 
 /* 25. Realizar una consulta SQL que para cada año y familia muestre :
 a. Año
