@@ -590,6 +590,47 @@ del año.
 El resultado deberá ser ordenado por el total vendido por año y familia en forma
 descendente. */
 
+ select YEAR(fact_fecha) as año,
+		--b
+		(select top 1 prod_familia from Producto join Item_Factura on prod_codigo = item_producto 
+			join Factura f1 on f1.fact_sucursal+f1.fact_numero+f1.fact_tipo = item_sucursal+item_numero+item_tipo
+			where YEAR(f1.fact_fecha) = YEAR(fact_fecha) group by prod_familia order by SUM(item_cantidad) desc) as familia_mas_vendida,
+		--c
+		(select COUNT(distinct prod_rubro) from Producto where prod_familia = (select top 1 prod_familia from Producto join Item_Factura on prod_codigo = item_producto 
+											join Factura f1 on f1.fact_sucursal+f1.fact_numero+f1.fact_tipo = item_sucursal+item_numero+item_tipo
+											where YEAR(f1.fact_fecha) = YEAR(fact_fecha) group by prod_familia order by SUM(item_cantidad) desc)) as cant_rubros,
+		--d
+		(select COUNT(*) from Composicion where comp_producto = (select top 1 prod_codigo from Producto join Item_Factura on prod_codigo = item_producto
+									 where prod_familia = (select top 1 prod_familia from Producto join Item_Factura on prod_codigo = item_producto 
+									 join Factura f1 on f1.fact_sucursal+f1.fact_numero+f1.fact_tipo = item_sucursal+item_numero+item_tipo
+									 where YEAR(f1.fact_fecha) = YEAR(fact_fecha) group by prod_familia order by SUM(item_cantidad) desc)
+		 group by prod_codigo order by SUM(item_cantidad) desc)) as cant_componentes,
+		--e
+		(select COUNT(distinct item_sucursal+item_numero+item_tipo) from Item_Factura --on f1.fact_sucursal+f1.fact_numero+f1.fact_tipo = item_sucursal+item_numero+item_tipo
+			join Producto on item_producto = prod_codigo where prod_familia = (select top 1 prod_familia from Producto join Item_Factura on prod_codigo = item_producto 
+												join Factura f1 on f1.fact_sucursal+f1.fact_numero+f1.fact_tipo = item_sucursal+item_numero+item_tipo
+												where YEAR(f1.fact_fecha) = YEAR(fact_fecha) group by prod_familia order by SUM(item_cantidad) desc)
+												) as cant_fact,
+		--f
+		(select top 1 fact_cliente from Factura f1 join Item_Factura on f1.fact_sucursal+f1.fact_numero+f1.fact_tipo = item_sucursal+item_numero+item_tipo
+			join Producto on item_producto = prod_codigo
+			where prod_familia = (select top 1 prod_familia from Producto join Item_Factura on prod_codigo = item_producto 
+									join Factura f1 on f1.fact_sucursal+f1.fact_numero+f1.fact_tipo = item_sucursal+item_numero+item_tipo
+									where YEAR(f1.fact_fecha) = YEAR(fact_fecha) group by prod_familia order by SUM(item_cantidad) desc)
+			group by fact_cliente
+			order by SUM(item_cantidad) desc) as cliente_top,
+		--g
+			(select SUM(item_cantidad * item_precio) from Item_Factura join Producto on item_producto = prod_codigo
+				join Factura f1 on f1.fact_sucursal+f1.fact_numero+f1.fact_tipo = item_sucursal+item_numero+item_tipo
+				where YEAR(f1.fact_fecha) = YEAR(fact_fecha) and prod_familia = (select top 1 prod_familia from Producto join Item_Factura on prod_codigo = item_producto 
+												 join Factura f1 on f1.fact_sucursal+f1.fact_numero+f1.fact_tipo = item_sucursal+item_numero+item_tipo
+												 where YEAR(f1.fact_fecha) = YEAR(fact_fecha) group by prod_familia order by SUM(item_cantidad) desc)
+												 )* 100 / SUM(fact_total) as porcentaje
+
+ from Factura
+ group by YEAR(fact_fecha)
+
+
 
 /* 26. Escriba una consulta sql que retorne un ranking de empleados devolviendo las
 siguientes columnas:
