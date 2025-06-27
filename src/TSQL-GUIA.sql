@@ -394,44 +394,27 @@ regla se cumple y que la base de datos es accedida por n aplicaciones de
 diferentes tipos y tecnologías
 */
 
-create trigger reglaEmpleado on empleado for update, delete
+create trigger reglaEmpleado on Empleado for update, delete
 as
 begin
-	if(select COUNT(*) from inserted i where ((select empl_salario from Empleado where empl_codigo = i.empl_jefe) < (dbo.salarioTotalDeSusEmpleados(i.empl_jefe))*0.2)) < 0
-	begin --aca evaluamos que se cumpla la regla para updatear
+	if (select COUNT(*) from inserted i where (select empl_salario from Empleado where empl_codigo = i.empl_jefe) < 0.20 * dbo.salarioTotalDeSusEmpleados(i.empl_jefe)) > 0
 		ROLLBACK 
-		RAISERROR('su jefe tiene salario mayor al 20% de sus empleados')	
-	end
-	if(select COUNT(*) from deleted i where ((select empl_salario from Empleado where empl_codigo = i.empl_jefe) < (dbo.salarioTotalDeSusEmpleados(i.empl_jefe))*0.2)) < 0
-	begin --aca volvemos a evaluar si despues de eliminar al empleado sigue cumpliendo la regla
+		RAISERROR('su jefe tiene salario mayor al 20% de sus empleados')
+
+	if (select COUNT(*) from deleted i where (select empl_salario from Empleado where empl_codigo = i.empl_jefe) < 0.20 * dbo.salarioTotalDeSusEmpleados(i.empl_jefe)) > 0
 		ROLLBACK 
-		RAISERROR('su jefe tiene salario mayor al 20% de sus empleados')	
-	end
-end
+		RAISERROR('su jefe tiene salario mayor al 20% de sus empleados')
+end 
 go
 
-create function salarioTotalDeSusEmpleados(@empleado numeric(6))
-returns decimal(12,2)
-as
-begin
-	declare @salarioTotal decimal(12,2)
-	select @salarioTotal = 0
-	declare @empl numeric(6)
-	declare @salario decimal(12,2)
-	declare empl_cursor cursor for select empl_codigo, empl_salario from Empleado where empl_jefe = @empleado
-	open empl_cursor
-	fetch next from empl_cursor into @empl, @salario
-	while @@FETCH_STATUS = 0
-		begin
-			select @salarioTotal = @salarioTotal + @salario + dbo.salarioTotalDeSusEmpleados(@empl)
-			fetch next from empl_cursor into @empl, @salario
-		end
-	close empl_cursor
-	deallocate empl_cursor
 
-	return @salarioTotal
-end
-go
+CREATE FUNCTION salarioTotalDeSusEmpleados(@codigo NUMERIC(6))
+RETURNS DECIMAL(12,2)
+AS
+BEGIN
+    RETURN (SELECT SUM(empl_salario + dbo.ej13(empl_codigo)) FROM Empleado WHERE empl_jefe = @codigo)
+END
+GO
 
 /* 14. Agregar el/los objetos necesarios para que si un cliente compra un producto
 compuesto a un precio menor que la suma de los precios de sus componentes
@@ -440,15 +423,48 @@ compra. No se deberá permitir que dicho precio sea menor a la mitad de la suma
 de los componentes.*/
 
 
-
-
-
-
-
-
-
-
-
+create trigger reglaComprarCompuesto on Item_factura instead of insert
+as
+begin
+	declare @prod char(8), @precio decimal(12,2), @cantidad decimal(12,2), @tipo char(1), @sucursal char(4), @numero char(8), @fecha smalldatetime, @cliente char(4)
+	
+	declare cfact cursor for (select item_tipo, item_sucursal, item_numero, fact_fecha, fact_cliente from inserted join Factura on fact_tipo+fact_sucursal+fact_numero = item_tipo+item_sucursal+item_numero group by item_tipo, item_sucursal, item_numero)
+	open cfact 
+	fetch next into @tipo, @sucursal, @numero, @fecha, @cliente
+	while @@FETCH_STATUS = 0
+		begin
+			declare prod_cursor cursor for (select item_producto, item_precio, item_cantidad from inserted where item_tipo+item_sucursal+item_numero = @tipo+@sucursal+@numero)
+			open prod_cursor 
+			fetch next from prod_cursor into @prod, @precio, @cantidad
+			declare @nocumple int = 0
+			while @@FETCH_STATUS = 0 and @nocumple = 0
+				begin
+					--caso que se puede insertar
+					if @precio > (select isnull(SUM(prod_codigo), 0) from Producto join Composicion on prod_codigo = comp_componente and comp_componente = @prod)
+						insert Item_Factura values(@tipo, @sucursal, @numero, @prod, @cantidad, @precio)
+					else 
+					if @precio < 0.5 * (select isnull(SUM(prod_codigo), 0) from Producto join Composicion on prod_codigo = comp_componente and comp_componente = @prod)
+						begin
+							print('La suma de los componentes es menor que el 50% del precio del producto ' +@prod+'para la fecha '+@fecha+'del cliente'+@cliente)
+							select @nocumple = 1
+						end
+					else
+						begin
+							insert Item_Factura values(@tipo, @sucursal, @numero, @prod, @cantidad, @precio)
+							print('La suma de los componentes es menor que el precio del producto ' + @prod+'para la fecha '+@fecha+'del cliente'+@cliente)
+						end
+					fetch next from prod_cursor into @prod, @precio
+				end
+			close prod_cursor
+			deallocate prod_cursor
+			if @nocumple = 1
+				delete from Item_Factura where item_tipo+item_sucursal+item_numero = @tipo+@sucursal+@numero
+				delete from Factura where fact_tipo+fact_sucursal+fact_numero = @tipo+@sucursal+@numero 
+		end
+	fetch next from cfa
+	close cfact
+	fetch next into @tipo, @sucursal, @numero
+end
 
 
 /*15. Cree el/los objetos de base de datos necesarios para que el objeto principal
@@ -561,6 +577,10 @@ necesarios para que dicha regla de negocio quede implementada.
 automaticamante se controle que en una misma factura no puedan venderse más
 de dos productos con composición. Si esto ocurre debera rechazarse la factura.
 */
+
+--resuelto en clase 29 2:10:00
+
+
 /*
 24. Se requiere recategorizar los encargados asignados a los depositos. Para ello
 cree el o los objetos de bases de datos necesarios que lo resueva, teniendo en
@@ -569,6 +589,9 @@ pertenezca a un departamento que no sea de la misma zona que el deposito, si
 esto ocurre a dicho deposito debera asignársele el empleado con menos
 depositos asignados que pertenezca a un departamento de esa zona.
 */
+
+--resuelto en clase 29 1:50:00
+
 /*
 25. Desarrolle el/los elementos de base de datos necesarios para que no se permita
 que la composición de los productos sea recursiva, o sea, que si el producto A
