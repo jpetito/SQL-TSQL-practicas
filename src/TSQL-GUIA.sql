@@ -466,7 +466,6 @@ begin
 	fetch next into @tipo, @sucursal, @numero
 end
 
-
 /*15. Cree el/los objetos de base de datos necesarios para que el objeto principal
 reciba un producto como parametro y retorne el precio del mismo.
 Se debe prever que el precio de los productos compuestos sera la sumatoria de
@@ -477,12 +476,42 @@ principal debe poder ser utilizado como filtro en el where de una sentencia
 select.
 */
 
+create function precioDelProducto(@producto char(8))
+returns decimal(12,2)
+as
+begin
+	declare @precio decimal(12,2)
 
+	if(select COUNT(*) from Composicion where comp_producto = @producto) > 0 
+		begin
+			select @precio = dbo.precioTotalComponentes(comp_producto) from Producto 
+					join Composicion on prod_codigo = comp_producto where prod_codigo = @producto
+		end
+	else
+		select @precio = prod_precio from Producto where prod_codigo = @producto
+	return @precio
+end
 
+create function precioTotalComponentes(@prod char(8))
+returns decimal (12,2)
+as
+begin
+	declare @precioTotal decimal(12,2) = 0
+	declare @comp char(8), @cantidad decimal(12,2)
 
+	declare cp cursor for (select comp_producto, comp_cantidad from Composicion where comp_producto = @prod)
+	open cp
+	fetch next from cp into @comp, @cantidad
+	while @@FETCH_STATUS = 0 
+		begin
+			select @precioTotal = @precioTotal + @cantidad * dbo.precioTotalComponentes(@comp)
+			fetch next from cp into @comp, @cantidad
+		end
+	close cp
+	deallocate cp
 
-
-
+	return @precioTotal
+end
 
 /*
 16. Desarrolle el/los elementos de base de datos necesarios para que ante una venta
