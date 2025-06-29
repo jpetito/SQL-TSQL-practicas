@@ -515,8 +515,8 @@ end
 
 /*
 16. Desarrolle el/los elementos de base de datos necesarios para que ante una venta
-automaticamante se descuenten del stock los articulos vendidos. Se descontaran
-del deposito que mas producto poseea y se supone que el stock se almacena
+automaticamante se descuenten del stock los articulos vendidos.
+Se descontaran del deposito que mas producto poseea y se supone que el stock se almacena
 tanto de productos simples como compuestos (si se acaba el stock de los
 compuestos no se arman combos)
 En caso que no alcance el stock de un deposito se descontara del siguiente y asi
@@ -524,12 +524,49 @@ hasta agotar los depositos posibles. En ultima instancia se dejara stock negativ
 en el ultimo deposito que se desconto.
 */
 
+create trigger descontarStock on Item_Factura after insert 
+as 
+begin
+	-- un cursor para CADA item que se inserto
+	declare @prod char(8), @cantVendida decimal(12,2)
+
+	declare c cursor for (select item_producto, item_cantidad from inserted)
+	open c
+	fetch next from c into @prod, @cantVendida
+	while @@FETCH_STATUS = 0 and @cantVendida > 0
+		begin
+			declare @depoElegido char(2), @stockActual decimal(12,2)
+			select top 1 @depoElegido = stoc_deposito from STOCK where stoc_producto = @prod order by stoc_cantidad desc
+			select @stockActual = stoc_cantidad from STOCK where stoc_deposito = @depoElegido
+			
+			if(@stockActual >= @cantVendida)
+				begin
+					update STOCK set stoc_cantidad = stoc_cantidad - @cantVendida
+						where stoc_producto = @prod and stoc_deposito = @depoElegido
+					set @cantVendida = 0
+				end
+			else 
+				begin
+					update STOCK set stoc_cantidad = 0 
+						where stoc_producto = @prod and stoc_deposito = @depoElegido
+					set @cantVendida = @cantVendida - @stockActual
+				end
+			fetch next from c into @prod, @cantVendida
+		end
+	close c
+	deallocate c
+end
 
 
+---pruebas de las consultas 
+select stoc_stock_maximo, stoc_cantidad, stoc_punto_reposicion, stoc_deposito from STOCK
+where stoc_producto = '00000102'
+group by stoc_deposito, stoc_stock_maximo, stoc_cantidad, stoc_punto_reposicion
+order by stoc_stock_maximo desc
 
-
-
-
+select stoc_deposito from STOCK
+where stoc_producto = '00000102'
+order by stoc_cantidad desc
 
 /*
 17. Sabiendo que el punto de reposicion del stock es la menor cantidad de ese objeto
