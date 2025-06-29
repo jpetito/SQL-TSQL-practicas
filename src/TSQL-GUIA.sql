@@ -576,12 +576,40 @@ necesarios para que dicha regla de negocio se cumpla automaticamente. No se
 conoce la forma de acceso a los datos ni el procedimiento por el cual se
 incrementa o descuenta stock
 */
+	--NO SE SI ESTE ESTA BIEN TENGO MUCHAS DUDAS jijiji
 
+create trigger reglaStock on Stock after insert, update
+as
+begin
+	--cursor para cada stock que se inserte
+	declare @prod char(8), @stock decimal(12,2), @depo char(2)
+	declare s cursor for(select stoc_producto, stoc_cantidad, stoc_deposito from inserted)
+	open s
+	fetch next from s into @prod, @stock, @depo
+	while @@FETCH_STATUS = 0
+	begin
+		declare @stockMax decimal(12,2), @stockMin decimal(12,2)
+		select @stockMax = stoc_stock_maximo from STOCK where stoc_producto = @prod
+		select @stockMin = stoc_punto_reposicion from STOCK where stoc_producto = @prod
+		
+		-- Validación 1: stock no debe superar el máximo
+		if(@stock > @stockMax)
+		begin
+			RAISERROR('El stock que se quiere ingresar es mayor al maximo esperado')
+			ROLLBACK
+			RETURN
+		end
+		-- Validación 2: aviso si está por debajo del punto de reposición
+		if(@stock < @stockMin)
+		begin
+			PRINT('El stock que se ingresa esta por debajo del punto de reposicion')
+		end
+		fetch next from s into @prod, @stock, @depo
+	end
 
-
-
-
-
+	close s 
+	deallocate s
+end
 
 /*
 18. Sabiendo que el limite de credito de un cliente es el monto maximo que se le
