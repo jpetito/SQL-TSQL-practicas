@@ -618,12 +618,53 @@ para que dicha regla de negocio se cumpla automaticamente. No se conoce la
 forma de acceso a los datos ni el procedimiento por el cual se emiten las facturas
 */
 
+--este no esta corregido por el profe pero creo que esta bien
 
+create trigger reglaCreditoCliente on Factura instead of insert
+as
+begin
+	--cursor para ver si los inserted cumplen
+	declare @fact_id char(13), @facTotalAux decimal(12,2), @clieAux char(6), @fechaAux smalldatetime --la fecha para saber si es del mismo mes 
+	declare c1 cursor for (select fact_tipo+fact_sucursal+fact_numero, fact_total, fact_cliente, fact_fecha from inserted)
+	open c1 
+	fetch next from c1 into @fact_id, @facTotalAux, @clieAux, @fechaAux
+	while @@FETCH_STATUS = 0
+	begin
+		declare @limiteCred decimal(12,2), @totalFactDelMes decimal(12,2)
+		select @limiteCred = clie_limite_credito from Cliente where clie_codigo = @clieAux
+		select @totalFactDelMes = SUM(fact_total) from Factura where fact_cliente = @clieAux and MONTH(fact_fecha) = MONTH(@fechaAux)
 
+		if(@facTotalAux <= @limiteCred - @totalFactDelMes) --si el total de la fact es menos o igual a lo que puede gastar ese mes..
+		begin
+			insert into Factura (fact_tipo,
+								 fact_sucursal,
+								 fact_numero,
+								 fact_fecha, 
+								 fact_vendedor,
+								 fact_total,
+								 fact_total_impuestos,
+								 fact_cliente)
+			select fact_tipo,
+				   fact_sucursal,
+				   fact_numero,
+				   fact_fecha, 
+				   fact_vendedor,
+				   fact_total,
+				   fact_total_impuestos,
+				   fact_cliente
+			from inserted
+			where fact_tipo+fact_sucursal+fact_numero = @fact_id	
+		end
+		else
+			print 'El cliente ' + @clieAux  + ' se pasó del limite'
 
+		fetch next from c1 into @fact_id, @facTotalAux, @clieAux, @fechaAux
+	end
 
+	close c1
+	deallocate c1
 
-
+end
 
 /*
 19. Cree el/los objetos de base de datos necesarios para que se cumpla la siguiente
@@ -633,9 +674,43 @@ antigüedad y tampoco puede tener más del 50% del personal a su cargo
 la actualidad la regla se cumple y existe un único gerente general.
 */
 
+create trigger reglaEmpleados on Empleado after insert, update, delete
+as
+begin
+	if exists (  -- si existe al menos un jefe (que NO sea el gerente general) que NO cumpla las condiciones
+		select empl_codigo 
+		from Empleado where empl_jefe is not null -- excluye al gerente general
+		and datediff(year, empl_ingreso, getdate()) < 5
+		or dbo.cantEmpleados(empl_jefe) <= 0.5 * (select COUNT(*) from Empleado) 
+		)
+	begin
+	ROLLBACK
+	print 'Ningun jefe puede tener menos de 5 anios de antiguedad y tampoco puede tener mas del 50% del personal a su cargo'
+	end
+end
+go
 
+--es la misma del punto 11
+create function cantEmpleados (@empleado numeric(6)) --le paso el jefe
+returns decimal(12,2)
+as
+begin
+	declare @cantEmpl decimal(12,2), @empl numeric(6)
+	declare empl_cursor cursor for select empl_codigo from Empleado where empl_jefe = @empleado
+	open empl_cursor
+	fetch next from empl_cursor into @empl
+	select  @cantEmpl = 0
+	while @@FETCH_STATUS = 0
+		begin
+			select @cantEmpl = @cantEmpl + 1 + dbo.cantEmpleados(@empl)
+		fetch next from empl_cursor into @empl
+		end
+	close empl_cursor
+	deallocate empl_cursor
 
-
+	return @cantEmpl
+end
+go
 
 
 /*
@@ -646,8 +721,24 @@ vendedor en ese mes, más un 3% adicional en caso de que ese vendedor haya
 vendido por lo menos 50 productos distintos en el mes.
 */
 
+create procedure actualizarComisiones(@vendedor numeric(6), @mes int, @anio int)
+as
+begin
+	declare @ventaTotal decimal(12,2), @cantProdVendidos decimal(12,2), @comision decimal(12,2)
+	select @ventaTotal = SUM(fact_total) from Factura 
+						where fact_vendedor = @vendedor and YEAR(fact_fecha) = @anio and MONTH(fact_fecha) = @mes
+	select @cantProdVendidos = COUNT(distinct item_producto) from Item_Factura join Factura on item_tipo+item_sucursal+item_numero = fact_tipo+fact_sucursal+fact_numero
+						where fact_vendedor = @vendedor and YEAR(fact_fecha) = @anio and MONTH(fact_fecha) = @mes
 
+	set @comision = 0.05 * @ventaTotal
+	
+	if(@cantProdVendidos >= 50) 
+	set @comision = @comision + 0.03 * @ventaTotal
 
+	update Empleado set empl_comision = @comision where empl_codigo = @vendedor 
+
+end
+go
 
 /*
 21. Desarrolle el/los elementos de base de datos necesarios para que se cumpla
@@ -656,7 +747,45 @@ diferentes familias. En caso de que esto ocurra no debe grabarse esa factura y
 debe emitirse un error en pantalla.
 */
 
+--este no se si esta bien
+create trigger reglaDeProductosEnFactura on Factura instead of insert 
+as
+begin
+	declare @fact_id char(13)
+	declare c1 cursor for (select fact_tipo+fact_sucursal+fact_numero from inserted)
+	open c1
+	fetch next from c1 into @fact_id
+	while @@FETCH_STATUS = 0
+	begin
+		if(select COUNT(distinct prod_familia) from Item_Factura join producto on item_producto = prod_codigo 
+			where item_tipo+item_sucursal+item_numero = @fact_id) > 1
+			RAISERROR('Esta factura no puede ser grabada por tener productos de la misma familia')
+		else 
+		--si pasa la validacion se inserta
+		begin
+			insert into Factura (fact_tipo,
+								 fact_sucursal,
+								 fact_numero,
+								 fact_fecha, 
+								 fact_vendedor,
+								 fact_total,
+								 fact_total_impuestos,
+								 fact_cliente)
+			select fact_tipo,
+				   fact_sucursal,
+				   fact_numero,
+				   fact_fecha, 
+				   fact_vendedor,
+				   fact_total,
+				   fact_total_impuestos,
+				   fact_cliente
+			from inserted
 
+			where fact_tipo+fact_sucursal+fact_numero = @fact_id	
+		end
+		fetch next from c1 into @fact_id
+	end
+end
 
 /*
 22. Se requiere recategorizar los rubros de productos, de forma tal que nigun rubro
@@ -666,13 +795,30 @@ productos y si no entran se debra crear un nuevo rubro en la misma familia con
 la descirpción “RUBRO REASIGNADO”, cree el/los objetos de base de datos
 necesarios para que dicha regla de negocio quede implementada.
 */
+
+
+
+
 /*
 23. Desarrolle el/los elementos de base de datos necesarios para que ante una venta
 automaticamante se controle que en una misma factura no puedan venderse más
 de dos productos con composición. Si esto ocurre debera rechazarse la factura.
 */
 
---resuelto en clase 29 2:10:00
+--lo hizo reinosa en una clase pero no entiendo porque no compila ???
+
+create trigger reglaComposicion on Item_factura for insert 
+as
+begin
+	if (select COUNT(distinct item_producto) from inserted 
+		join Composicion on item_producto = comp_producto) > 2
+	begin
+		DELETE FROM Item_Factura where item_tipo+item_sucursal+item_numero in (select item_tipo+item_sucursal+item_numero from inserted)
+		DELETE FROM Factura where fact_tipo+fact_sucursal+fact_numero in (select fact_tipo+fact_sucursal+fact_numero from inserted)
+		RAISERROR('Factura rechazada, no puede haber mas de dos productos con composicion')
+		ROLLBACK
+	end
+end
 
 
 /*
