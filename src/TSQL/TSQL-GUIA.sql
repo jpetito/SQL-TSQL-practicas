@@ -870,18 +870,57 @@ compone al producto B, dicho producto B no pueda ser compuesto por el
 producto A, hoy la regla se cumple.
 */
 
- alter trigger composicionRecursiva on Composicion after insert 
- as
- begin
-	if exists (select i.comp_producto, i.comp_componente from inserted i join Composicion c
-			on c.comp_componente = i.comp_producto and c.comp_producto = i.comp_componente
-			)
-	begin
-		RAISERROR('No puede haber composición recíproca entre productos',16,1)
-		ROLLBACK
-	end
- end
- go
+create trigger evitaComposicionRecursiva
+on Composicion
+after insert
+as
+begin
+    if exists (
+        select 1
+        from inserted i
+        where dbo.esComponente(i.comp_componente, i.comp_producto) = 1
+    )
+    begin
+        rollback
+        raiserror('No se permite la composición recursiva entre productos.', 16, 1)
+    end
+end
+go
+
+--reutilizada de ej12
+create function esComponente(@productoBase char(8), @productoNuevo char(8))
+returns int
+as
+begin
+    if @productoBase = @productoNuevo
+        return 1
+
+    declare @componente char(8)
+    declare c cursor for
+        select comp_componente
+        from Composicion
+        where comp_producto = @productoNuevo
+
+    open c
+    fetch next from c into @componente
+
+    while @@FETCH_STATUS = 0
+    begin
+        if dbo.esComponente(@productoBase, @componente) = 1
+        begin
+            close c
+            deallocate c
+            return 1
+        end
+        fetch next from c into @componente
+    end
+
+    close c
+    deallocate c
+    return 0
+end
+go
+
 
 /*
 26. Desarrolle el/los elementos de base de datos necesarios para que se cumpla
