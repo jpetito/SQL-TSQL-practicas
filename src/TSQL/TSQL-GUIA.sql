@@ -805,7 +805,6 @@ automaticamante se controle que en una misma factura no puedan venderse más
 de dos productos con composición. Si esto ocurre debera rechazarse la factura.
 */
 
---lo hizo reinosa en una clase pero no entiendo porque no compila ???
 
 create trigger reglaComposicion on Item_factura for insert 
 as
@@ -815,11 +814,10 @@ begin
 	begin
 		DELETE FROM Item_Factura where item_tipo+item_sucursal+item_numero in (select item_tipo+item_sucursal+item_numero from inserted)
 		DELETE FROM Factura where fact_tipo+fact_sucursal+fact_numero in (select fact_tipo+fact_sucursal+fact_numero from inserted)
-		RAISERROR('Factura rechazada, no puede haber mas de dos productos con composicion')
+		RAISERROR('Factura rechazada, no puede haber mas de dos productos con composicion', 16, 1)
 		ROLLBACK
 	end
 end
-
 
 /*
 24. Se requiere recategorizar los encargados asignados a los depositos. Para ello
@@ -830,7 +828,40 @@ esto ocurre a dicho deposito debera asignársele el empleado con menos
 depositos asignados que pertenezca a un departamento de esa zona.
 */
 
---resuelto en clase 29 1:50:00
+create procedure recategorizarEncargados
+as
+begin
+	declare @emp numeric(6), @depo char(2), @zonaDepo char(3)
+
+	declare c1 cursor for (select depo_encargado, depo_codigo, depo_zona from DEPOSITO)
+	open c1
+	fetch next from c1 into @emp, @depo, @zonaDepo
+	while @@FETCH_STATUS = 0
+	begin
+		declare @zonaDepa char(3)
+		select @zonaDepa = depa_zona from Departamento join Empleado on empl_departamento = depa_codigo where empl_codigo = @emp
+
+		if(@zonaDepa <> @zonaDepo)
+			declare @empleadoConMenosDepos numeric(6)
+            -- Encontrar empleado de la zona con menos depósitos asignados
+			select top 1 @empleadoConMenosDepos = empl_codigo from Empleado join departamento 
+												on empl_departamento = depa_codigo left join DEPOSITO on depo_encargado = empl_codigo
+												where depa_zona = @zonaDepo
+												group by empl_codigo
+												order by COUNT(depo_encargado) asc
+
+			update DEPOSITO 
+			set depo_encargado = @empleadoConMenosDepos 
+			where depo_codigo = @depo
+
+		fetch next from c1 into @emp, @depo, @zonaDepo
+	end
+
+	close c1
+	deallocate c1
+
+end
+go
 
 /*
 25. Desarrolle el/los elementos de base de datos necesarios para que no se permita
@@ -838,6 +869,20 @@ que la composición de los productos sea recursiva, o sea, que si el producto A
 compone al producto B, dicho producto B no pueda ser compuesto por el
 producto A, hoy la regla se cumple.
 */
+
+ alter trigger composicionRecursiva on Composicion after insert 
+ as
+ begin
+	if exists (select i.comp_producto, i.comp_componente from inserted i join Composicion c
+			on c.comp_componente = i.comp_producto and c.comp_producto = i.comp_componente
+			)
+	begin
+		RAISERROR('No puede haber composición recíproca entre productos',16,1)
+		ROLLBACK
+	end
+ end
+ go
+
 /*
 26. Desarrolle el/los elementos de base de datos necesarios para que se cumpla
 automaticamente la regla de que una factura no puede contener productos que
