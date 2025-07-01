@@ -251,6 +251,7 @@ END
 
 --- 20-11-2024 ---
 
+
 /* 2. Se detectó un error en el proceso de registro de ventas, donde se almacenaron productos compuestos
 en lugar de sus componentes individuales. Para solucionar este problema, se debe:
 
@@ -260,11 +261,44 @@ en lugar de sus componentes individuales. Para solucionar este problema, se debe
     3. Garantizar que la base de datos quede consistente y alineada con las especificaciones requeridas para el manejo de poductos
 */
 
-create procedure 
+CREATE PROCEDURE reorganizarVentas
+AS
+BEGIN
+    declare @prod char(8), @tipo char(1), @sucursal char(4), @numero char(8), @cant decimal(12,2), @precio decimal(12,2)
 
+    declare c1 cursor for select item_tipo, item_sucursal, item_numero, item_producto, item_cantidad, item_precio from Item_Factura where item_producto in (select comp_producto from Composicion)
+    open c1
+    fetch next from c1 into @tipo, @sucursal, @numero, @prod, @cant, @precio
+    while @@FETCH_STATUS = 0
+    BEGIN
+        declare @compoAux char(8), @cantCompoAux decimal(12,2)
+        declare c2 cursor for select comp_componente, comp_cantidad from Composicion where comp_producto = @prod
+        open c2
+        fetch next from c2 into @compoAux, @cantCompoAux
+        while @@FETCH_STATUS = 0
+        BEGIN
+            insert into Item_Factura (
+                item_tipo, item_sucursal, item_numero, item_producto, item_cantidad, item_precio
+            )
+            values (
+                @tipo, @sucursal, @numero, @compoAux, @cant * @cantCompoAux, @precio
+            )
 
+            fetch next from c2 into @compoAux, @cantCompoAux
+        END
+        close c2
+        deallocate c2
 
+        delete from Item_Factura
+        where item_tipo+item_sucursal+item_numero= @tipo+@sucursal+@numero
+        and item_producto = @prod
 
+        fetch next from c1 into @tipo, @sucursal, @numero, @prod, @cant, @precio
+    END
+
+    close c1
+    deallocate c1
+END
 
 
 -- 16-11-2024 --
@@ -278,14 +312,51 @@ numero de unidades vendidas.
 CREATE TABLE TopProductos(
     prod_codigo char(8),
     cant_vendida decimal(12,2),
-    año_venta SMALLDATETIME
+    anio int
 )
 
-CREATE TRIGGER EJ2 ON Item_factura AFTER INSERT 
-AS 
-BEGIN 
+alter trigger trg_actualizar_top10 on Item_Factura after insert
+as
+begin
+    declare @fact_id char(13), @fecha smalldatetime, @cant decimal(12,2), @prod char(8)
+        declare c1 cursor for select item_tipo+item_sucursal+item_numero, fact_fecha, item_cantidad, item_producto from inserted
+         join Factura on item_tipo+item_sucursal+item_numero = fact_tipo+fact_sucursal+fact_numero
     
-END
+    open c1
+    fetch next from c1 into @fact_id, @fecha, @cant, @prod
+    
+    while @@FETCH_STATUS = 0
+    begin
+        declare @anio int 
+        select anio = year(@fecha)
+
+        if exists(select prod_codigo from TopProductos where anio = @anio and prod_codigo = @prod)
+        begin
+            update TopProductos
+            set cant_vendida = cant_vendida + @cant
+            where anio = @anio and prod_codigo = @prod
+        end 
+        else   
+        begin
+            if(select count(*) from TopProductos where anio = @anio) <= 10
+            begin 
+                insert into TopProductos (anio, prod_codigo, cantidad_vendida)
+                values (@anio, @prod, @cant)
+            end 
+            else 
+            begin --si hay mas de 10 productos borrar el que menos cantidad tenga
+                delete from TopProductos where anio = @anio
+                    and cantidad_vendida = (select min(cantidad_vendida) from TopProductos where anio = @anio) 
+                    and prod_codigo not in (select top 10 prod_codigo from TopProductos where anio = @anio order by cantidad_vendida desc)
+            end 
+        end 
+
+        fetch next from c1 into @fact_id, @fecha, @cant, @prod
+    end
+
+    close c1 
+    deallocate c1
+end 
 
 -- 22-11-2022 --
 
